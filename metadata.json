@@ -1,0 +1,6 @@
+{
+  "name": "Sightline Vision Suite",
+  "description": "Unified visual recognition and monitoring system integrating traffic car colour detection, wildlife carnivore tracking, female voice emotion analysis, conditional nationality profiling, time-gated sign language recognition, and vehicle drowsiness monitoring.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
