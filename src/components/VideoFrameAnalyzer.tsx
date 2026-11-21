@@ -12,7 +12,11 @@ interface VideoFrameAnalyzerProps<T> {
   onVideoSelect: (file: File) => void;
   analyzeFrame: (frameBase64: string, mimeType: string) => Promise<T>;
   mapResultToBoxes: (result: T) => BoundingBoxItem[];
-  onFramesAnalyzed: (frames: AnalyzedVideoFrame<T>[], activeFrame: AnalyzedVideoFrame<T>) => void;
+  onFramesAnalyzed: (
+    frames: AnalyzedVideoFrame<T>[],
+    activeFrame: AnalyzedVideoFrame<T>,
+    isNewScan?: boolean,
+  ) => void;
   analyzing: boolean;
   setAnalyzing: (busy: boolean) => void;
   onError: (message: string) => void;
@@ -72,7 +76,7 @@ export function VideoFrameAnalyzer<T>({
       };
       const updated = [entry];
       setFrames(updated);
-      onFramesAnalyzed(updated, entry);
+      onFramesAnalyzed(updated, entry, true);
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to analyze video frame.');
     } finally {
@@ -111,7 +115,7 @@ export function VideoFrameAnalyzer<T>({
       setFrames(collected);
       if (collected.length > 0) {
         video.currentTime = collected[0].timestamp;
-        onFramesAnalyzed(collected, collected[0]);
+        onFramesAnalyzed(collected, collected[0], true);
       }
     } catch (err) {
       onError(err instanceof Error ? err.message : 'Failed to scan video timeline.');
@@ -275,7 +279,7 @@ export function VideoFrameAnalyzer<T>({
                           videoRef.current.currentTime = frame.timestamp;
                         }
                         setCurrentTime(frame.timestamp);
-                        onFramesAnalyzed(frames, frame);
+                        onFramesAnalyzed(frames, frame, false);
                       }}
                       className={`group overflow-hidden rounded-md border text-left transition-colors ${
                         isSelected

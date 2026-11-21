@@ -1,20 +1,23 @@
 import { motion } from 'motion/react';
-import { AlertTriangle, Eye, EyeOff, Film, Image as ImageIcon, Loader2, PawPrint, RotateCcw, Sparkles, Upload } from 'lucide-react';
+import { AlertTriangle, Film, Image as ImageIcon, Loader2, PawPrint, RotateCcw, Sparkles, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { AnalyzedVideoFrame, AnimalDetectionResult, BoundingBoxItem } from '../../types/vision';
 import { fileToBase64, urlToBase64 } from '../../utils/media';
 import { AlertModal } from '../AlertModal';
 import { AnimatedNumber } from '../AnimatedNumber';
-import { BoundingBoxOverlay } from '../BoundingBoxOverlay';
-import { InteractiveDropZone } from '../InteractiveDropZone';
-import { ScanBeamOverlay } from '../ScanBeamOverlay';
+import { InspectionViewport } from '../InspectionViewport';
+import { TactileCard } from '../TactileCard';
 import { VideoFrameAnalyzer } from '../VideoFrameAnalyzer';
 
 const SAMPLE_WILDLIFE_IMAGE = '/src/assets/images/sample_wildlife_animals_1795104911128.jpg';
 
 type DietFilter = 'all' | 'carnivore' | 'other';
 
-export function AnimalDetectionModule() {
+interface AnimalDetectionModuleProps {
+  onDetectionRecorded?: (count: number) => void;
+}
+
+export function AnimalDetectionModule({ onDetectionRecorded }: AnimalDetectionModuleProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [mode, setMode] = useState<'image' | 'video'>('image');
   const [previewUrl, setPreviewUrl] = useState<string | null>(SAMPLE_WILDLIFE_IMAGE);
@@ -100,6 +103,7 @@ export function AnimalDetectionModule() {
       const data = await callAnimalApi(payload.base64, payload.mimeType);
       setResult(data);
       setDietFilter('all');
+      onDetectionRecorded?.(data.totalAnimals);
       if (data.carnivoreCount > 0) {
         setPopupAlert({
           open: true,
@@ -117,8 +121,13 @@ export function AnimalDetectionModule() {
   const handleVideoFramesAnalyzed = (
     frames: AnalyzedVideoFrame<AnimalDetectionResult>[],
     activeFrame: AnalyzedVideoFrame<AnimalDetectionResult>,
+    isNewScan = false,
   ) => {
     setResult(activeFrame.result);
+    if (isNewScan) {
+      const scannedTotal = frames.reduce((sum, f) => sum + f.result.totalAnimals, 0);
+      onDetectionRecorded?.(scannedTotal);
+    }
     const maxCarnivoreFrame = frames.reduce(
       (best, f) => (f.result.carnivoreCount > best.result.carnivoreCount ? f : best),
       activeFrame,
@@ -229,7 +238,7 @@ export function AnimalDetectionModule() {
                   setError(null);
                   setDietFilter('all');
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Sample Wildlife
@@ -238,7 +247,7 @@ export function AnimalDetectionModule() {
                 type="button"
                 whileTap={{ scale: 0.97 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <Upload className="h-3.5 w-3.5" />
                 Upload Image
@@ -248,7 +257,7 @@ export function AnimalDetectionModule() {
                 whileTap={{ scale: 0.97 }}
                 onClick={handleAnalyzeImage}
                 disabled={loading || !previewUrl}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                className="btn-3d-primary inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium text-white transition-colors disabled:opacity-50 whitespace-nowrap"
               >
                 {loading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -314,49 +323,24 @@ export function AnimalDetectionModule() {
                 Green highlight = Herbivore / Omnivore
               </span>
             </div>
-            {result ? (
-              <button
-                type="button"
-                onClick={() => setShowLabels((v) => !v)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900 whitespace-nowrap"
-              >
-                {showLabels ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                {showLabels ? 'Hide Labels' : 'Show Labels'}
-              </button>
-            ) : null}
           </div>
 
           {mode === 'image' ? (
-            <InteractiveDropZone
+            <InspectionViewport
+              imageUrl={previewUrl}
+              alt="Animal detection preview"
+              boxes={boxes}
+              highlightedId={highlightedId}
+              onSelectBox={(id) => setHighlightedId((prev) => (prev === id ? null : id))}
+              onClearHighlight={() => setHighlightedId(null)}
               onFileDrop={handleImageFile}
-              acceptPrefix="image/"
               dropLabel="Drop wildlife photo to classify species"
-            >
-              <div
-                onClick={() => setHighlightedId(null)}
-                className="relative flex min-h-[380px] items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-950 p-3"
-              >
-                {previewUrl ? (
-                  <div className="relative inline-block max-w-full">
-                    <img
-                      src={previewUrl}
-                      alt="Animal detection preview"
-                      referrerPolicy="no-referrer"
-                      className="block max-h-[460px] w-auto max-w-full rounded-xs"
-                    />
-                    <BoundingBoxOverlay
-                      boxes={boxes}
-                      highlightedId={highlightedId}
-                      showLabels={showLabels}
-                      onSelectBox={(id) => setHighlightedId((prev) => (prev === id ? null : id))}
-                    />
-                    <ScanBeamOverlay active={loading} label="Classifying species & diet..." />
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">Upload an image to begin detection.</p>
-                )}
-              </div>
-            </InteractiveDropZone>
+              loading={loading}
+              scanLabel="Classifying species & diet..."
+              emptyText="Upload an image to begin detection."
+              showLabels={showLabels}
+              onToggleLabels={() => setShowLabels((v) => !v)}
+            />
           ) : (
             <VideoFrameAnalyzer<AnimalDetectionResult>
               videoUrl={videoUrl}
@@ -373,7 +357,7 @@ export function AnimalDetectionModule() {
         </div>
 
         <div className="space-y-4 lg:col-span-4">
-          <div className="rounded-lg border border-slate-200 bg-white">
+          <TactileCard>
             <div className="border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Species &amp; Carnivore Count</h3>
             </div>
@@ -409,10 +393,10 @@ export function AnimalDetectionModule() {
                 <div className="p-4 text-xs leading-relaxed text-slate-600">{result.summary}</div>
               </motion.div>
             )}
-          </div>
+          </TactileCard>
 
           {result && result.animals.length > 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="surface-3d rounded-lg">
               <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Species ({filteredAnimals.length})
@@ -460,11 +444,14 @@ export function AnimalDetectionModule() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredAnimals.map((animal) => {
+                    {filteredAnimals.map((animal, idx) => {
                       const active = highlightedId === animal.id;
                       return (
-                        <tr
+                        <motion.tr
                           key={animal.id}
+                          initial={{ opacity: 0, x: -4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.18, delay: Math.min(idx * 0.03, 0.25) }}
                           onClick={() =>
                             setHighlightedId((prev) => (prev === animal.id ? null : animal.id))
                           }
@@ -487,7 +474,7 @@ export function AnimalDetectionModule() {
                           <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-600">
                             {Math.round(animal.confidence * 100)}%
                           </td>
-                        </tr>
+                        </motion.tr>
                       );
                     })}
                   </tbody>

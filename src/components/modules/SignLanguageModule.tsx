@@ -1,12 +1,13 @@
-import { motion } from 'motion/react';
-import { Camera, Clock, Hand, Image as ImageIcon, Loader2, RotateCcw, Sparkles, Upload, Video, VideoOff } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Camera, Check, Clock, Eye, EyeOff, Hand, Image as ImageIcon, Loader2, RotateCcw, Sparkles, Upload, Video, VideoOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { BoundingBoxItem, SignLanguageResult } from '../../types/vision';
 import { captureVideoFrame, fileToBase64, urlToBase64 } from '../../utils/media';
 import { AnimatedNumber } from '../AnimatedNumber';
 import { BoundingBoxOverlay } from '../BoundingBoxOverlay';
-import { InteractiveDropZone } from '../InteractiveDropZone';
+import { InspectionViewport } from '../InspectionViewport';
 import { ScanBeamOverlay } from '../ScanBeamOverlay';
+import { TactileCard } from '../TactileCard';
 
 const SAMPLE_SIGN_IMAGE = '/src/assets/images/sample_sign_language_1795104911353.jpg';
 const TARGET_WORDS = [
@@ -29,7 +30,15 @@ interface TranscriptEntry {
   time: string;
 }
 
-export function SignLanguageModule() {
+interface SignLanguageModuleProps {
+  onCameraStateChange?: (active: boolean, permission?: 'granted' | 'denied') => void;
+  onDetectionRecorded?: (count: number) => void;
+}
+
+export function SignLanguageModule({
+  onCameraStateChange,
+  onDetectionRecorded,
+}: SignLanguageModuleProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -48,6 +57,7 @@ export function SignLanguageModule() {
   const [history, setHistory] = useState<TranscriptEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showLabels, setShowLabels] = useState(true);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 15000);
@@ -63,6 +73,9 @@ export function SignLanguageModule() {
   const currentHour = now.getHours();
   const isNaturallyOperational = currentHour >= 18 && currentHour < 22;
   const isOperational = isNaturallyOperational || simulateActiveWindow;
+  const realTimePercent = ((now.getHours() * 60 + now.getMinutes()) / 1440) * 100;
+  const effectiveTimePercent =
+    !isNaturallyOperational && simulateActiveWindow ? (20 / 24) * 100 : realTimePercent;
 
   useEffect(() => {
     if (!autoDetect || !cameraActive || !isOperational) {
@@ -101,6 +114,7 @@ export function SignLanguageModule() {
       videoRef.current.srcObject = null;
     }
     setCameraActive(false);
+    onCameraStateChange?.(false);
   };
 
   const startCamera = async () => {
@@ -111,6 +125,7 @@ export function SignLanguageModule() {
       });
       streamRef.current = stream;
       setCameraActive(true);
+      onCameraStateChange?.(true, 'granted');
       window.setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -118,6 +133,7 @@ export function SignLanguageModule() {
         }
       }, 50);
     } catch (err) {
+      onCameraStateChange?.(false, 'denied');
       setError(
         err instanceof Error
           ? err.message
@@ -150,6 +166,7 @@ export function SignLanguageModule() {
       }
       const typed = data as SignLanguageResult;
       setResult(typed);
+      onDetectionRecorded?.(typed.handDetected ? 1 : 0);
       if (typed.handDetected && typed.recognizedWord) {
         setHistory((prev) => [
           {
@@ -282,7 +299,7 @@ export function SignLanguageModule() {
                   setResult(null);
                   setError(null);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Sample Sign
@@ -291,7 +308,7 @@ export function SignLanguageModule() {
                 type="button"
                 whileTap={{ scale: 0.97 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <Upload className="h-3.5 w-3.5" />
                 Upload Image
@@ -301,7 +318,7 @@ export function SignLanguageModule() {
                 whileTap={{ scale: 0.97 }}
                 onClick={handleAnalyzeImage}
                 disabled={loading || !previewUrl || !isOperational}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                className="btn-3d-primary inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium text-white transition-colors disabled:opacity-50 whitespace-nowrap"
               >
                 {loading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -317,39 +334,77 @@ export function SignLanguageModule() {
 
       <motion.div
         layout
-        className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-xs transition-colors ${
+        className={`space-y-3 rounded-lg border px-4 py-3 text-xs transition-colors ${
           isOperational
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-            : 'border-amber-200 bg-amber-50 text-amber-950'
+            ? 'border-emerald-200 bg-emerald-50/90 text-emerald-950'
+            : 'border-amber-200 bg-amber-50/90 text-amber-950'
         }`}
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <Clock className="h-4 w-4 shrink-0" />
-          <span className="font-semibold">
-            {isOperational ? 'Model Operational' : 'Outside Operational Hours (Locked)'}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span className="font-mono tabular-nums">
-            Local Time: {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span>Allowed Window: 6:00 PM – 10:00 PM (18:00–22:00)</span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Clock className="h-4 w-4 shrink-0" />
+            <span className="font-semibold">
+              {isOperational ? 'Model Operational' : 'Outside Operational Hours (Locked)'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="font-mono tabular-nums">
+              Local Time: {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span>Allowed Window: 6:00 PM – 10:00 PM (18:00–22:00)</span>
+          </div>
+
+          {!isNaturallyOperational ? (
+            <label className="inline-flex cursor-pointer items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                checked={simulateActiveWindow}
+                onChange={(e) => {
+                  setSimulateActiveWindow(e.target.checked);
+                  setError(null);
+                }}
+                className="rounded border-amber-400 text-blue-600"
+              />
+              Simulate 6:00 PM – 10:00 PM Window (Testing)
+            </label>
+          ) : null}
         </div>
 
-        {!isNaturallyOperational ? (
-          <label className="inline-flex cursor-pointer items-center gap-2 font-medium">
-            <input
-              type="checkbox"
-              checked={simulateActiveWindow}
-              onChange={(e) => {
-                setSimulateActiveWindow(e.target.checked);
-                setError(null);
-              }}
-              className="rounded border-amber-400 text-blue-600"
+        {/* 24-Hour Operational Window Timeline */}
+        <div className="space-y-1">
+          <div className="relative h-2 w-full overflow-hidden rounded-full bg-slate-900/10">
+            {/* Active 18:00 - 22:00 Permit Zone */}
+            <div
+              style={{ left: '75%', width: '16.6667%' }}
+              className={`absolute inset-y-0 rounded-full transition-colors ${
+                isOperational ? 'bg-emerald-500/45' : 'bg-blue-500/30'
+              }`}
             />
-            Simulate 6:00 PM – 10:00 PM Window (Testing)
-          </label>
-        ) : null}
+            {/* Real-time ghost reference when simulated */}
+            {!isNaturallyOperational && simulateActiveWindow ? (
+              <div
+                style={{ left: `${realTimePercent}%` }}
+                className="absolute top-0 bottom-0 w-0.5 -translate-x-1/2 bg-slate-500/45"
+                title="Actual local time"
+              />
+            ) : null}
+            {/* Active time indicator */}
+            <motion.div
+              animate={{ left: `${effectiveTimePercent}%` }}
+              transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+              className={`absolute top-0 bottom-0 w-1.5 -translate-x-1/2 rounded-full ${
+                isOperational ? 'bg-emerald-600' : 'bg-amber-600'
+              }`}
+            />
+          </div>
+          <div className="flex justify-between font-mono text-[10px] tabular-nums opacity-75">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span className="font-semibold">18:00–22:00 Active</span>
+            <span>24:00</span>
+          </div>
+        </div>
       </motion.div>
 
       {error ? (
@@ -364,57 +419,86 @@ export function SignLanguageModule() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="space-y-3 lg:col-span-8">
-          {mode === 'image' ? (
-            <InteractiveDropZone
-              onFileDrop={handleImageFile}
-              acceptPrefix="image/"
-              dropLabel="Drop sign gesture image to recognize"
-            >
-              <div className="relative flex min-h-[380px] items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-950 p-3">
-                {previewUrl ? (
-                  <div className="relative inline-block max-w-full">
-                    <img
-                      src={previewUrl}
-                      alt="Sign language preview"
-                      referrerPolicy="no-referrer"
-                      className="block max-h-[460px] w-auto max-w-full rounded-xs"
-                    />
-                    <BoundingBoxOverlay boxes={boxes} />
-                    <ScanBeamOverlay active={loading} label="Recognizing hand gesture..." />
+          <AnimatePresence mode="wait">
+            {mode === 'image' ? (
+              <motion.div
+                key="sign-image-mode"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16 }}
+              >
+                <InspectionViewport
+                  imageUrl={previewUrl}
+                  alt="Sign language preview"
+                  boxes={boxes}
+                  onFileDrop={handleImageFile}
+                  dropLabel="Drop sign gesture image to recognize"
+                  loading={loading}
+                  scanLabel="Recognizing hand gesture..."
+                  emptyText="Drag and drop or upload a hand gesture photo to recognize."
+                  showLabels={showLabels}
+                  onToggleLabels={() => setShowLabels((v) => !v)}
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="sign-video-mode"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16 }}
+                className="space-y-3"
+              >
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+                  <div className="flex items-center justify-between border-b border-slate-800/90 bg-slate-950 px-3.5 py-2 text-[11px] text-slate-400">
+                    <div className="flex items-center gap-2 font-mono">
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          cameraActive ? 'animate-pulse bg-emerald-400' : 'bg-slate-600'
+                        }`}
+                      />
+                      <span>
+                        {cameraActive ? 'Live Webcam Feed · Active' : 'Real-Time Webcam Standby'}
+                      </span>
+                    </div>
+                    {boxes.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShowLabels((v) => !v)}
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-slate-300 transition-colors hover:bg-slate-800 hover:text-white whitespace-nowrap"
+                      >
+                        {showLabels ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                        <span>{showLabels ? 'Hide Labels' : 'Show Labels'}</span>
+                      </button>
+                    ) : null}
                   </div>
-                ) : (
-                  <p className="text-sm text-slate-400">
-                    Drag and drop or upload a hand gesture photo to recognize.
-                  </p>
-                )}
-              </div>
-            </InteractiveDropZone>
-          ) : (
-            <div className="space-y-3">
-              <div className="relative flex min-h-[380px] items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
-                {cameraActive ? (
-                  <div className="relative inline-block w-full">
-                    <video
-                      ref={videoRef}
-                      muted
-                      playsInline
-                      className="mx-auto max-h-[440px] w-full object-contain"
-                    />
-                    <BoundingBoxOverlay boxes={boxes} />
-                    <ScanBeamOverlay active={loading} label="Analyzing live frame..." />
+                  <div className="optical-stage-grid relative flex min-h-[380px] items-center justify-center overflow-hidden p-3">
+                    {cameraActive ? (
+                      <div className="relative inline-block w-full">
+                        <video
+                          ref={videoRef}
+                          muted
+                          playsInline
+                          className="mx-auto max-h-[440px] w-full rounded-xs object-contain"
+                        />
+                        <BoundingBoxOverlay boxes={boxes} showLabels={showLabels} />
+                        <ScanBeamOverlay active={loading} label="Analyzing live frame..." />
+                      </div>
+                    ) : (
+                      <div className="px-6 py-12 text-center text-slate-300">
+                        <Camera className="mx-auto h-8 w-8 text-slate-500" />
+                        <p className="mt-3 text-sm font-medium text-white">
+                          Real-Time Sign Language Webcam Feed
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Start your webcam to capture live frames or enable continuous 3.5s
+                          detection.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="px-6 py-12 text-center text-slate-300">
-                    <Camera className="mx-auto h-8 w-8 text-slate-500" />
-                    <p className="mt-3 text-sm font-medium text-white">
-                      Real-Time Sign Language Webcam Feed
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Start your webcam to capture live frames or enable continuous 3.5s detection.
-                    </p>
-                  </div>
-                )}
-              </div>
+                </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
                 <div className="flex items-center gap-3 text-xs text-slate-600">
@@ -472,12 +556,13 @@ export function SignLanguageModule() {
                   </motion.button>
                 ) : null}
               </div>
-            </div>
-          )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         <div className="space-y-4 lg:col-span-4">
-          <div className="rounded-lg border border-slate-200 bg-white">
+          <TactileCard>
             <div className="border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Recognized Sign Output</h3>
             </div>
@@ -508,11 +593,22 @@ export function SignLanguageModule() {
                     {result.handDetected ? result.recognizedWord : 'No Gesture Detected'}
                   </div>
                 </div>
-                <div className="flex items-center justify-between px-4 py-3 text-xs">
-                  <span className="text-slate-500">Confidence</span>
-                  <span className="font-mono font-semibold text-slate-900">
-                    <AnimatedNumber value={Math.round(result.confidence * 100)} suffix="%" />
-                  </span>
+                <div className="space-y-2 px-4 py-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Confidence</span>
+                    <span className="font-mono font-semibold text-slate-900">
+                      <AnimatedNumber value={Math.round(result.confidence * 100)} suffix="%" />
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <motion.div
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: Math.min(1, Math.max(0.05, result.confidence)) }}
+                      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                      style={{ transformOrigin: 'left' }}
+                      className="h-full w-full bg-blue-600"
+                    />
+                  </div>
                 </div>
                 <div className="p-4 text-xs leading-relaxed text-slate-600">
                   {result.gestureDescription}
@@ -525,27 +621,29 @@ export function SignLanguageModule() {
                 ) : null}
               </motion.div>
             )}
-          </div>
+          </TactileCard>
 
-          <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="surface-3d rounded-lg p-4">
             <h4 className="text-xs font-semibold text-slate-900">Supported Known Words</h4>
             <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-xs">
               {TARGET_WORDS.map((word) => {
-                const matched =
+                const matched = Boolean(
                   result?.handDetected &&
-                  result.recognizedWord.toLowerCase().includes(word.toLowerCase());
+                    result.recognizedWord.toLowerCase().includes(word.toLowerCase()),
+                );
                 return (
                   <motion.div
                     key={word}
-                    animate={matched ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-                    transition={{ duration: 0.35 }}
-                    className={`rounded-md border px-2.5 py-1.5 font-medium transition-colors ${
+                    animate={matched ? { scale: [1, 1.03, 1] } : { scale: 1 }}
+                    transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+                    className={`flex items-center justify-between rounded-md border px-2.5 py-1.5 font-medium transition-colors ${
                       matched
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xs'
                         : 'border-slate-200 bg-slate-50 text-slate-700'
                     }`}
                   >
-                    {word}
+                    <span>{word}</span>
+                    {matched ? <Check className="h-3 w-3 shrink-0 text-blue-600" /> : null}
                   </motion.div>
                 );
               })}

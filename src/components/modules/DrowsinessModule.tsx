@@ -1,20 +1,23 @@
 import { motion } from 'motion/react';
-import { AlertTriangle, Eye, EyeOff, Film, Image as ImageIcon, Loader2, RotateCcw, Sparkles, Upload } from 'lucide-react';
+import { AlertTriangle, EyeOff, Film, Image as ImageIcon, Loader2, RotateCcw, Sparkles, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import type { AnalyzedVideoFrame, BoundingBoxItem, DrowsinessResult } from '../../types/vision';
 import { fileToBase64, urlToBase64 } from '../../utils/media';
 import { AlertModal } from '../AlertModal';
 import { AnimatedNumber } from '../AnimatedNumber';
-import { BoundingBoxOverlay } from '../BoundingBoxOverlay';
-import { InteractiveDropZone } from '../InteractiveDropZone';
-import { ScanBeamOverlay } from '../ScanBeamOverlay';
+import { InspectionViewport } from '../InspectionViewport';
+import { TactileCard } from '../TactileCard';
 import { VideoFrameAnalyzer } from '../VideoFrameAnalyzer';
 
 const SAMPLE_CABIN_IMAGE = '/src/assets/images/sample_vehicle_drowsiness_1795104911996.jpg';
 
 type OccupantFilter = 'all' | 'sleeping' | 'awake';
 
-export function DrowsinessModule() {
+interface DrowsinessModuleProps {
+  onDetectionRecorded?: (count: number) => void;
+}
+
+export function DrowsinessModule({ onDetectionRecorded }: DrowsinessModuleProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [mode, setMode] = useState<'image' | 'video'>('image');
   const [previewUrl, setPreviewUrl] = useState<string | null>(SAMPLE_CABIN_IMAGE);
@@ -102,6 +105,7 @@ export function DrowsinessModule() {
       const data = await callDrowsinessApi(payload.base64, payload.mimeType);
       setResult(data);
       setFilter('all');
+      onDetectionRecorded?.(data.totalPeople);
       if (data.sleepingCount > 0) {
         setPopupAlert({
           open: true,
@@ -119,8 +123,13 @@ export function DrowsinessModule() {
   const handleVideoFramesAnalyzed = (
     frames: AnalyzedVideoFrame<DrowsinessResult>[],
     activeFrame: AnalyzedVideoFrame<DrowsinessResult>,
+    isNewScan = false,
   ) => {
     setResult(activeFrame.result);
+    if (isNewScan) {
+      const scannedTotal = frames.reduce((sum, f) => sum + f.result.totalPeople, 0);
+      onDetectionRecorded?.(scannedTotal);
+    }
     const worstFrame = frames.reduce(
       (best, f) => (f.result.sleepingCount > best.result.sleepingCount ? f : best),
       activeFrame,
@@ -230,7 +239,7 @@ export function DrowsinessModule() {
                   setError(null);
                   setFilter('all');
                 }}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
                 Sample Cabin
@@ -239,7 +248,7 @@ export function DrowsinessModule() {
                 type="button"
                 whileTap={{ scale: 0.97 }}
                 onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap"
+                className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors whitespace-nowrap"
               >
                 <Upload className="h-3.5 w-3.5" />
                 Upload Image
@@ -249,7 +258,7 @@ export function DrowsinessModule() {
                 whileTap={{ scale: 0.97 }}
                 onClick={handleAnalyzeImage}
                 disabled={loading || !previewUrl}
-                className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                className="btn-3d-primary inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium text-white transition-colors disabled:opacity-50 whitespace-nowrap"
               >
                 {loading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -318,51 +327,24 @@ export function DrowsinessModule() {
                 Green box = Awake occupant
               </span>
             </div>
-            {result ? (
-              <button
-                type="button"
-                onClick={() => setShowLabels((v) => !v)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900 whitespace-nowrap"
-              >
-                {showLabels ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                {showLabels ? 'Hide Labels' : 'Show Labels'}
-              </button>
-            ) : null}
           </div>
 
           {mode === 'image' ? (
-            <InteractiveDropZone
+            <InspectionViewport
+              imageUrl={previewUrl}
+              alt="Vehicle cabin preview"
+              boxes={boxes}
+              highlightedId={highlightedId}
+              onSelectBox={(id) => setHighlightedId((prev) => (prev === id ? null : id))}
+              onClearHighlight={() => setHighlightedId(null)}
               onFileDrop={handleImageFile}
-              acceptPrefix="image/"
               dropLabel="Drop vehicle cabin photo to inspect occupancy"
-            >
-              <div
-                onClick={() => setHighlightedId(null)}
-                className="relative flex min-h-[380px] items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-950 p-3"
-              >
-                {previewUrl ? (
-                  <div className="relative inline-block max-w-full">
-                    <img
-                      src={previewUrl}
-                      alt="Vehicle cabin preview"
-                      referrerPolicy="no-referrer"
-                      className="block max-h-[460px] w-auto max-w-full rounded-xs"
-                    />
-                    <BoundingBoxOverlay
-                      boxes={boxes}
-                      highlightedId={highlightedId}
-                      showLabels={showLabels}
-                      onSelectBox={(id) => setHighlightedId((prev) => (prev === id ? null : id))}
-                    />
-                    <ScanBeamOverlay active={loading} label="Inspecting cabin occupants..." />
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400">
-                    Drag and drop or upload a vehicle interior photo.
-                  </p>
-                )}
-              </div>
-            </InteractiveDropZone>
+              loading={loading}
+              scanLabel="Inspecting cabin occupants..."
+              emptyText="Drag and drop or upload a vehicle interior photo."
+              showLabels={showLabels}
+              onToggleLabels={() => setShowLabels((v) => !v)}
+            />
           ) : (
             <VideoFrameAnalyzer<DrowsinessResult>
               videoUrl={videoUrl}
@@ -379,7 +361,7 @@ export function DrowsinessModule() {
         </div>
 
         <div className="space-y-4 lg:col-span-4">
-          <div className="rounded-lg border border-slate-200 bg-white">
+          <TactileCard>
             <div className="border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Cabin Occupancy Status</h3>
             </div>
@@ -421,10 +403,10 @@ export function DrowsinessModule() {
                 <div className="p-4 text-xs leading-relaxed text-slate-600">{result.summary}</div>
               </motion.div>
             )}
-          </div>
+          </TactileCard>
 
           {result && result.occupants.length > 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="surface-3d rounded-lg">
               <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Occupants ({filteredOccupants.length})
@@ -470,11 +452,14 @@ export function DrowsinessModule() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredOccupants.map((person) => {
+                    {filteredOccupants.map((person, idx) => {
                       const active = highlightedId === person.id;
                       return (
-                        <tr
+                        <motion.tr
                           key={person.id}
+                          initial={{ opacity: 0, x: -4 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.18, delay: Math.min(idx * 0.03, 0.25) }}
                           onClick={() =>
                             setHighlightedId((prev) => (prev === person.id ? null : person.id))
                           }
@@ -497,7 +482,7 @@ export function DrowsinessModule() {
                           <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-700">
                             {person.isSleeping ? `${person.estimatedAge} yrs` : '—'}
                           </td>
-                        </tr>
+                        </motion.tr>
                       );
                     })}
                   </tbody>

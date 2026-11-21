@@ -1,12 +1,22 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertCircle, AudioLines, Loader2, Mic, Sparkles, Square, Upload } from 'lucide-react';
+import { AlertCircle, AudioLines, Box, Check, Loader2, Mic, Sparkles, Square, Upload, Waves } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { VoiceEmotionResult } from '../../types/vision';
 import { fileToBase64 } from '../../utils/media';
 import { AnimatedNumber } from '../AnimatedNumber';
+import { AudioSpectrum3D } from '../AudioSpectrum3D';
 import { InteractiveDropZone } from '../InteractiveDropZone';
+import { TactileCard } from '../TactileCard';
 
-export function VoiceEmotionModule() {
+interface VoiceEmotionModuleProps {
+  onMicStateChange?: (active: boolean, permission?: 'granted' | 'denied') => void;
+  onDetectionRecorded?: (count: number) => void;
+}
+
+export function VoiceEmotionModule({
+  onMicStateChange,
+  onDetectionRecorded,
+}: VoiceEmotionModuleProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const playbackCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -29,6 +39,9 @@ export function VoiceEmotionModule() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VoiceEmotionResult | null>(null);
+  const [visualMode, setVisualMode] = useState<'2d' | '3d'>('3d');
+  const [activeAnalyser, setActiveAnalyser] = useState<AnalyserNode | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     if (!recording) return;
@@ -45,6 +58,7 @@ export function VoiceEmotionModule() {
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((t) => t.stop());
       }
+      onMicStateChange?.(false);
     };
   }, []);
 
@@ -76,24 +90,46 @@ export function VoiceEmotionModule() {
     if (!ctx) return;
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
+    const barCount = 48;
+    const peaks = new Float32Array(barCount);
 
     const render = () => {
       rafRef.current = requestAnimationFrame(render);
       analyser.getByteFrequencyData(dataArray);
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#090d16';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      const barCount = 48;
+      // Subtle reference grid lines
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+      ctx.lineWidth = 1;
+      for (const ratio of [0.25, 0.5, 0.75]) {
+        const gy = Math.round(canvas.height * ratio) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.lineTo(canvas.width, gy);
+        ctx.stroke();
+      }
+
       const step = Math.max(1, Math.floor(bufferLength / barCount));
       const barWidth = canvas.width / barCount - 3;
 
       for (let i = 0; i < barCount; i++) {
         const val = dataArray[i * step] / 255;
-        const barH = Math.max(4, val * (canvas.height - 16));
+        const barH = Math.max(3, val * (canvas.height - 16));
+        peaks[i] = Math.max(barH, peaks[i] - 0.8);
         const x = i * (barWidth + 3) + 1.5;
         const y = canvas.height - barH - 6;
-        ctx.fillStyle = val > 0.65 ? '#60a5fa' : '#2563eb';
+
+        const grad = ctx.createLinearGradient(0, y, 0, canvas.height - 6);
+        grad.addColorStop(0, val > 0.6 ? '#93c5fd' : '#60a5fa');
+        grad.addColorStop(1, '#1d4ed8');
+        ctx.fillStyle = grad;
         ctx.fillRect(x, y, barWidth, barH);
+
+        // Peak cap indicator
+        const peakY = canvas.height - peaks[i] - 8;
+        ctx.fillStyle = val > 0.6 ? '#dbeafe' : 'rgba(147, 197, 253, 0.7)';
+        ctx.fillRect(x, peakY, barWidth, 1.5);
       }
     };
     render();
@@ -101,8 +137,8 @@ export function VoiceEmotionModule() {
 
   const handleAudioPlay = () => {
     const audioEl = audioElRef.current;
-    const canvas = playbackCanvasRef.current;
-    if (!audioEl || !canvas) return;
+    if (!audioEl) return;
+    setIsPlaying(true);
 
     if (!playbackCtxRef.current) {
       const ctx = new AudioContext();
@@ -113,9 +149,17 @@ export function VoiceEmotionModule() {
       analyser.connect(ctx.destination);
       playbackCtxRef.current = ctx;
       playbackSourceRef.current = source;
-      drawFrequencyBars(analyser, canvas, playbackFrameRef);
-    } else if (playbackCtxRef.current.state === 'suspended') {
-      playbackCtxRef.current.resume().catch(() => {});
+      setActiveAnalyser(analyser);
+      if (playbackCanvasRef.current) {
+        drawFrequencyBars(analyser, playbackCanvasRef.current, playbackFrameRef);
+      }
+    } else {
+      if (playbackCtxRef.current.state === 'suspended') {
+        playbackCtxRef.current.resume().catch(() => {});
+      }
+      if (activeAnalyser && playbackCanvasRef.current && playbackFrameRef.current === null) {
+        drawFrequencyBars(activeAnalyser, playbackCanvasRef.current, playbackFrameRef);
+      }
     }
   };
 
@@ -131,11 +175,21 @@ export function VoiceEmotionModule() {
     const render = () => {
       animFrameRef.current = requestAnimationFrame(render);
       analyser.getByteTimeDomainData(dataArray);
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#090d16';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+      // Center oscilloscope axis
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, canvas.height / 2);
+      ctx.lineTo(canvas.width, canvas.height / 2);
+      ctx.stroke();
+
       ctx.lineWidth = 2;
-      ctx.strokeStyle = '#3b82f6';
+      ctx.strokeStyle = '#60a5fa';
+      ctx.shadowColor = 'rgba(59, 130, 246, 0.45)';
+      ctx.shadowBlur = 6;
       ctx.beginPath();
 
       const sliceWidth = canvas.width / bufferLength;
@@ -149,6 +203,7 @@ export function VoiceEmotionModule() {
       }
       ctx.lineTo(canvas.width, canvas.height / 2);
       ctx.stroke();
+      ctx.shadowBlur = 0;
     };
     render();
   };
@@ -166,7 +221,10 @@ export function VoiceEmotionModule() {
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 1024;
       source.connect(analyser);
-      drawWaveform(analyser);
+      setActiveAnalyser(analyser);
+      if (canvasRef.current) {
+        drawWaveform(analyser);
+      }
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg';
       const recorder = new MediaRecorder(stream, { mimeType });
@@ -178,7 +236,10 @@ export function VoiceEmotionModule() {
 
       recorder.onstop = async () => {
         stopVisualizer();
+        setActiveAnalyser(null);
+        setIsPlaying(false);
         stream.getTracks().forEach((t) => t.stop());
+        onMicStateChange?.(false, 'granted');
         const blob = new Blob(chunks, { type: mimeType });
         const file = new File([blob], `recorded-voice.${mimeType.includes('ogg') ? 'ogg' : 'webm'}`, {
           type: mimeType,
@@ -196,8 +257,10 @@ export function VoiceEmotionModule() {
       mediaRecorderRef.current = recorder;
       setRecordSeconds(0);
       setRecording(true);
+      onMicStateChange?.(true, 'granted');
       recorder.start();
     } catch (err) {
+      onMicStateChange?.(false, 'denied');
       setError(
         err instanceof Error
           ? err.message
@@ -211,6 +274,7 @@ export function VoiceEmotionModule() {
       mediaRecorderRef.current.stop();
     }
     setRecording(false);
+    onMicStateChange?.(false);
   };
 
   const handleFileUpload = async (file: File) => {
@@ -253,7 +317,9 @@ export function VoiceEmotionModule() {
       if (!res.ok) {
         throw new Error(data.error || 'Voice emotion analysis failed.');
       }
-      setResult(data as VoiceEmotionResult);
+      const typed = data as VoiceEmotionResult;
+      setResult(typed);
+      onDetectionRecorded?.(typed.hasSpeech ? 1 : 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Voice analysis request failed.');
     } finally {
@@ -291,7 +357,7 @@ export function VoiceEmotionModule() {
             whileTap={{ scale: 0.97 }}
             onClick={() => fileInputRef.current?.click()}
             disabled={recording}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+            className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-700 transition-colors disabled:opacity-50 whitespace-nowrap"
           >
             <Upload className="h-3.5 w-3.5" />
             Upload Voice Note
@@ -302,7 +368,7 @@ export function VoiceEmotionModule() {
               type="button"
               whileTap={{ scale: 0.97 }}
               onClick={handleStartRecording}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap"
+              className="btn-3d-secondary inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium text-slate-800 transition-colors whitespace-nowrap"
             >
               <Mic className="h-3.5 w-3.5 text-red-600" />
               Record Voice
@@ -312,7 +378,7 @@ export function VoiceEmotionModule() {
               type="button"
               whileTap={{ scale: 0.97 }}
               onClick={handleStopRecording}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-700 whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-2 text-xs font-medium text-white shadow-sm transition-colors hover:bg-red-700 whitespace-nowrap"
             >
               <Square className="h-3.5 w-3.5" />
               Stop ({recordSeconds}s)
@@ -324,7 +390,7 @@ export function VoiceEmotionModule() {
             whileTap={{ scale: 0.97 }}
             onClick={handleAnalyze}
             disabled={loading || recording || !audioPayload}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+            className="btn-3d-primary inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-xs font-medium text-white transition-colors disabled:opacity-50 whitespace-nowrap"
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -353,72 +419,233 @@ export function VoiceEmotionModule() {
             acceptPrefix="audio/"
             dropLabel="Drop voice note (WAV, MP3, WebM) here"
           >
-            <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="surface-3d rounded-lg p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
                 <div>
                   <div className="text-xs font-medium text-slate-500">Audio Input Source</div>
                   <div className="mt-0.5 text-sm font-semibold text-slate-900">{audioLabel}</div>
                 </div>
-                <div className="text-xs text-slate-500">WAV · MP3 · OGG · WebM · M4A</div>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-0.5 rounded-md bg-slate-100 p-0.5 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setVisualMode('2d')}
+                      className={`inline-flex items-center gap-1 rounded px-2 py-1 font-medium transition-colors whitespace-nowrap ${
+                        visualMode === '2d'
+                          ? 'bg-white text-slate-900 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Waves className="h-3 w-3" />
+                      <span>2D Wave</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisualMode('3d')}
+                      className={`inline-flex items-center gap-1 rounded px-2 py-1 font-medium transition-colors whitespace-nowrap ${
+                        visualMode === '3d'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Box className="h-3 w-3" />
+                      <span>3D Harmonic</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {recording ? (
-                <div className="space-y-2">
-                  <canvas
-                    ref={canvasRef}
-                    width={640}
-                    height={140}
-                    className="h-36 w-full rounded-md border border-slate-800 bg-slate-950"
-                  />
-                  <p className="text-xs font-mono tabular-nums text-red-600">
-                    Recording live microphone input ({recordSeconds}s)... Speak naturally, then
-                    click Stop.
-                  </p>
-                </div>
-              ) : audioUrl ? (
-                <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
-                  <canvas
-                    ref={playbackCanvasRef}
-                    width={640}
-                    height={96}
-                    className="h-24 w-full rounded-md border border-slate-800 bg-slate-950"
-                  />
-                  <audio
-                    ref={audioElRef}
-                    src={audioUrl}
-                    controls
-                    onPlay={handleAudioPlay}
-                    className="w-full"
-                  />
-                </div>
-              ) : (
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40"
-                >
-                  <AudioLines className="h-7 w-7 text-slate-400" />
-                  <p className="mt-2 text-sm font-medium text-slate-800">
-                    Drag &amp; drop a voice note or record directly with your microphone
-                  </p>
-                  <p className="mt-1 max-w-md text-xs text-slate-500">
-                    Supported exclusively for female voices. If a non-female voice is supplied, the
-                    model will prompt you to provide a female voice instead.
-                  </p>
-                </div>
-              )}
+              <AnimatePresence mode="wait">
+                {recording ? (
+                  <motion.div
+                    key="recording-stage"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.16 }}
+                    className="space-y-2"
+                  >
+                    {visualMode === '3d' ? (
+                      <AudioSpectrum3D
+                        analyser={activeAnalyser}
+                        active={true}
+                        analyzing={loading}
+                      />
+                    ) : (
+                      <canvas
+                        ref={canvasRef}
+                        width={640}
+                        height={140}
+                        className="h-36 w-full rounded-md border border-slate-800 bg-[#090d16]"
+                      />
+                    )}
+                    <p className="flex items-center gap-2 text-xs font-mono tabular-nums text-red-600">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
+                      <span>
+                        Recording live microphone input ({recordSeconds}s)... Speak naturally, then
+                        click Stop.
+                      </span>
+                    </p>
+                  </motion.div>
+                ) : audioUrl ? (
+                  <motion.div
+                    key="playback-stage"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.16 }}
+                    className="surface-3d-recessed space-y-3 rounded-md p-4"
+                  >
+                    {visualMode === '3d' ? (
+                      <AudioSpectrum3D
+                        analyser={activeAnalyser}
+                        active={isPlaying}
+                        analyzing={loading}
+                        emotion={result?.isFemaleVoice ? result.emotion : null}
+                        rejected={Boolean(result && !result.isFemaleVoice)}
+                      />
+                    ) : (
+                      <canvas
+                        ref={playbackCanvasRef}
+                        width={640}
+                        height={96}
+                        className="h-24 w-full rounded-md border border-slate-800 bg-[#090d16]"
+                      />
+                    )}
+                    <audio
+                      ref={audioElRef}
+                      src={audioUrl}
+                      controls
+                      onPlay={handleAudioPlay}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={() => setIsPlaying(false)}
+                      className="w-full"
+                    />
+                  </motion.div>
+                ) : visualMode === '3d' ? (
+                  <motion.div
+                    key="3d-standby-stage"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-3"
+                  >
+                    <AudioSpectrum3D
+                      analyser={null}
+                      active={false}
+                      analyzing={loading}
+                    />
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="cursor-pointer rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40"
+                    >
+                      <p className="text-xs font-medium text-slate-800">
+                        Drag &amp; drop a voice note or record directly with your microphone (Female
+                        voices only)
+                      </p>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="drop-stage"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/40"
+                  >
+                    <AudioLines className="h-7 w-7 text-slate-400" />
+                    <p className="mt-2 text-sm font-medium text-slate-800">
+                      Drag &amp; drop a voice note or record directly with your microphone
+                    </p>
+                    <p className="mt-1 max-w-md text-xs text-slate-500">
+                      Supported exclusively for female voices. If a non-female voice is supplied,
+                      the model will prompt you to provide a female voice instead.
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* 3-Stage Verification Pipeline */}
+              <div className="grid grid-cols-3 gap-3 border-t border-slate-100 pt-3">
+                {[
+                  {
+                    step: '01',
+                    label: 'Audio Input',
+                    done: Boolean(audioPayload),
+                    active: recording,
+                    failed: false,
+                  },
+                  {
+                    step: '02',
+                    label: 'Female Screening',
+                    done: Boolean(result && result.isFemaleVoice),
+                    active: loading,
+                    failed: Boolean(result && !result.isFemaleVoice),
+                  },
+                  {
+                    step: '03',
+                    label: 'Emotion Result',
+                    done: Boolean(result && result.isFemaleVoice),
+                    active: false,
+                    failed: false,
+                  },
+                ].map((stage) => (
+                  <div key={stage.step} className="space-y-1.5">
+                    <div className="h-1 w-full overflow-hidden rounded-full bg-slate-100">
+                      <motion.div
+                        initial={{ scaleX: 0 }}
+                        animate={{
+                          scaleX: stage.done || stage.failed ? 1 : stage.active ? 0.65 : 0,
+                        }}
+                        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                        style={{ transformOrigin: 'left' }}
+                        className={`h-full w-full ${
+                          stage.failed
+                            ? 'bg-amber-500'
+                            : stage.done
+                              ? 'bg-emerald-600'
+                              : 'bg-blue-600'
+                        }`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="font-mono text-slate-400">{stage.step}</span>
+                      <span
+                        className={`font-medium truncate ${
+                          stage.failed
+                            ? 'text-amber-700'
+                            : stage.done
+                              ? 'text-slate-900'
+                              : stage.active
+                                ? 'text-blue-600'
+                                : 'text-slate-500'
+                        }`}
+                      >
+                        {stage.label}
+                      </span>
+                      {stage.done ? <Check className="h-3 w-3 shrink-0 text-emerald-600" /> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
 
               {loading ? (
-                <div className="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-medium text-blue-800">
+                <motion.div
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-3 rounded-md border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-medium text-blue-800"
+                >
                   <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                   <span>Evaluating speaker voice profile &amp; emotional prosody...</span>
-                </div>
+                </motion.div>
               ) : null}
             </div>
           </InteractiveDropZone>
         </div>
 
         <div className="space-y-4 lg:col-span-5">
-          <div className="rounded-lg border border-slate-200 bg-white">
+          <TactileCard>
             <div className="border-b border-slate-200 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-900">Voice &amp; Emotion Output</h3>
             </div>
@@ -529,7 +756,7 @@ export function VoiceEmotionModule() {
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </TactileCard>
         </div>
       </div>
     </div>

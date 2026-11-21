@@ -22,3 +22,69 @@
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+.studio-canvas-bg {
+  background-color: #eef2f7;
+  background-image:
+    radial-gradient(ellipse 85% 55% at 55% -10%, rgba(59, 130, 246, 0.08), transparent 65%),
+    radial-gradient(ellipse 65% 45% at 100% 100%, rgba(148, 163, 184, 0.14), transparent 60%);
+}
+
+.surface-3d {
+  background-color: #ffffff;
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 10px 24px -10px rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.surface-3d-recessed {
+  background-color: #f8fafc;
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.btn-3d-primary {
+  background-image: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border: 1px solid #1d4ed8;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.16),
+    0 6px 14px -4px rgba(37, 99, 235, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.btn-3d-primary:hover:not(:disabled) {
+  background-image: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.btn-3d-secondary {
+  background-image: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 2px 6px -2px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.btn-3d-secondary:hover:not(:disabled) {
+  background-image: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.sidebar-obsidian-3d {
+  background: linear-gradient(180deg, #0b1120 0%, #0f172a 55%, #090e1a 100%);
+  box-shadow:
+    inset -1px 0 0 rgba(148, 163, 184, 0.12),
+    4px 0 24px -12px rgba(15, 23, 42, 0.35);
+}
+
+.optical-stage-grid {
+  background-color: #090d16;
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
